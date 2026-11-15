@@ -1,0 +1,29 @@
+
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build output
+client/dist/
+server/dist/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+server/.env
+client/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# Uploaded files and local data
+server/uploads/
+uploads/
+
+# OS and editor files
+.DS_Store
+.vscode/
