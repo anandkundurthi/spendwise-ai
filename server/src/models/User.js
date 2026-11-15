@@ -30,10 +30,16 @@ const userSchema = new mongoose.Schema({
   },
 
   avatarUrl: {
-    type: String,
-    trim: true,
-    default: ''
-  },
+  type: String,
+  trim: true,
+  default: ''
+},
+
+avatarPublicId: {
+  type: String,
+  trim: true,
+  default: ''
+},
 
   currency: {
     type: String,

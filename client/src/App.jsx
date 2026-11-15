@@ -610,7 +610,14 @@ async function downloadMonthlyReport() {
           </div>
 
           <button className="profile-row" onClick={logout}>
-            <div className="avatar">{firstName[0]?.toUpperCase()}</div>
+            <div className="avatar">
+              {user.avatarUrl ? (
+                <img src={assetUrl(user.avatarUrl)} alt="Profile" />
+              ) : (
+                firstName[0]?.toUpperCase()
+              )}
+            </div>
+
             <div className="profile-text">
               <strong>{user.name}</strong>
               <span>{user.email}</span>

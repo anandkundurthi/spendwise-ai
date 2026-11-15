@@ -1,12 +1,11 @@
-
+import cloudinary from '../config/cloudinary.js';
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { fileTypeFromBuffer } from 'file-type';
-import { mkdir, writeFile, unlink } from 'node:fs/promises';
+import { unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 import User from '../models/User.js';
@@ -15,6 +14,26 @@ import avatarUpload from '../middleware/avatarUpload.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const router = Router();
+
+const uploadToCloudinary = (buffer) =>
+  new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'spendwise-ai/avatars',
+        resource_type: 'image',
+        transformation: [
+          { width: 512, height: 512, crop: 'limit' },
+          { quality: 'auto', fetch_format: 'auto' }
+        ]
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
+
+    stream.end(buffer);
+  });
 
 const uploadsDirectory = fileURLToPath(
   new URL('../../uploads/', import.meta.url)
@@ -184,26 +203,37 @@ router.post(
       });
     }
 
-    await mkdir(uploadsDirectory, { recursive: true });
-
-    const filename = `${randomUUID()}.${extension}`;
-    const filePath = path.join(uploadsDirectory, filename);
     const previousAvatar = req.user.avatarUrl;
+    const previousPublicId = req.user.avatarPublicId;
 
-    await writeFile(filePath, req.file.buffer, { flag: 'wx' });
+    const uploaded = await uploadToCloudinary(req.file.buffer);
 
     try {
-      req.user.avatarUrl = `/uploads/${filename}`;
+      req.user.avatarUrl = uploaded.secure_url;
+      req.user.avatarPublicId = uploaded.public_id;
+
       await req.user.save();
     } catch (error) {
-      await unlink(filePath).catch(() => {});
+      await cloudinary.uploader.destroy(uploaded.public_id, {
+        resource_type: 'image',
+        invalidate: true
+      }).catch(() => {});
+
       throw error;
     }
 
-    if (
-      previousAvatar &&
-      previousAvatar.startsWith('/uploads/')
-    ) {
+    // Remove the previous Cloudinary image only after saving succeeds.
+    if (previousPublicId && previousPublicId !== uploaded.public_id) {
+      await cloudinary.uploader.destroy(previousPublicId, {
+        resource_type: 'image',
+        invalidate: true
+      }).catch((error) => {
+        console.error('Previous Cloudinary avatar cleanup failed:', error.message);
+      });
+    }
+
+    // Preserve compatibility with older locally stored profile images.
+    if (previousAvatar?.startsWith('/uploads/')) {
       const previousFilename = path.basename(previousAvatar);
       const previousPath = path.join(uploadsDirectory, previousFilename);
 
