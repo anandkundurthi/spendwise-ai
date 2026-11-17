@@ -3,26 +3,19 @@ import Transaction from '../models/Transaction.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { getFinancialIntelligence } from '../services/financialIntelligence.js';
+import {
+  getIndiaMonthKey,
+  getPreviousMonthKey,
+  getStoredDateMonthRange
+} from '../utils/reportingDates.js';
 
 const router = Router();
 
 router.use(requireAuth);
 
 router.get('/summary', asyncHandler(async (req, res) => {
-  const now = new Date();
-
-  // Current month boundaries in UTC.
-  const start = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    1
-  ));
-
-  const end = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth() + 1,
-    1
-  ));
+  const month = getIndiaMonthKey();
+  const { start, end } = getStoredDateMonthRange(month);
 
   const monthlyMatch = {
     user: req.user._id,
@@ -135,13 +128,11 @@ router.get('/comparison', asyncHandler(async (req, res) => {
 
   const month = monthPattern.test(req.query.month || '')
     ? req.query.month
-    : new Date().toISOString().slice(0, 7);
+    : getIndiaMonthKey();
 
-  const [year, monthNumber] = month.split('-').map(Number);
-
-  const currentStart = new Date(Date.UTC(year, monthNumber - 1, 1));
-  const currentEnd = new Date(Date.UTC(year, monthNumber, 1));
-  const previousStart = new Date(Date.UTC(year, monthNumber - 2, 1));
+  const previousMonth = getPreviousMonthKey(month);
+  const { start: previousStart } = getStoredDateMonthRange(previousMonth);
+  const { end: currentEnd } = getStoredDateMonthRange(month);
 
   const results = await Transaction.aggregate([
     {
@@ -169,8 +160,6 @@ router.get('/comparison', asyncHandler(async (req, res) => {
       }
     }
   ]);
-
-  const previousMonth = previousStart.toISOString().slice(0, 7);
 
   const currentData = results.filter(
     item => item._id.month === month

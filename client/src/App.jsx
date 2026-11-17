@@ -38,9 +38,26 @@ const icons = {
   Other: MoreHorizontal
 };
 
+const REPORTING_TIME_ZONE = 'Asia/Kolkata';
+
+const getIndiaDateKey = (date = new Date()) =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: REPORTING_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date);
+
+const getIndiaMonthKey = (date = new Date()) =>
+  getIndiaDateKey(date).slice(0, 7);
+
 const dateForInput = (value) => {
-  if (!value) return new Date().toISOString().slice(0, 10);
-  return new Date(value).toISOString().slice(0, 10);
+  if (!value) return getIndiaDateKey();
+  const dateString = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateString)) {
+    return dateString.slice(0, 10);
+  }
+  return getIndiaDateKey(new Date(value));
 };
 
 const LazyReactMarkdown = React.lazy(() =>
@@ -74,10 +91,9 @@ export default function App() {
   const [monthlyReportAI, setMonthlyReportAI] = useState('');
   const [monthlyReportLoading, setMonthlyReportLoading] = useState(false);
   const [monthlyReportError, setMonthlyReportError] = useState('');
-  const [selectedBudgetMonth, setSelectedBudgetMonth] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [selectedBudgetMonth, setSelectedBudgetMonth] = useState(() =>
+    getIndiaMonthKey()
+  );
   const [goals, setGoals] = useState([]);
   const [financialIntelligence, setFinancialIntelligence] = useState(null);
   const [aiInsights, setAiInsights] = useState([]);
@@ -704,7 +720,8 @@ async function downloadMonthlyReport() {
               <CalendarDays size={15} />
               {new Date().toLocaleDateString('en-IN', {
                 month: 'short',
-                year: 'numeric'
+                year: 'numeric',
+                timeZone: REPORTING_TIME_ZONE
               })}
             </div>
             <button className="icon-button" title="Notifications">
@@ -1079,7 +1096,11 @@ function Overview({
 }) {
   
   const getGreeting = () => {
-    const hour = new Date().getHours();
+    const hour = Number(new Intl.DateTimeFormat('en-IN', {
+      timeZone: REPORTING_TIME_ZONE,
+      hour: '2-digit',
+      hourCycle: 'h23'
+    }).format(new Date()));
 
     if (hour >= 5 && hour < 12) {
       return 'Good morning';
@@ -1124,7 +1145,10 @@ function Overview({
       });
   };
 
-  const month = new Date().toLocaleDateString('en-IN', { month: 'long' });
+  const month = new Date().toLocaleDateString('en-IN', {
+    month: 'long',
+    timeZone: REPORTING_TIME_ZONE
+  });
 
   const spentPct = summary.income > 0
     ? Math.min(100, summary.expenses / summary.income * 100)
@@ -1165,10 +1189,10 @@ const formatMonth = (value) => {
 
   // Build a real daily series from the API response.
   const chartData = useMemo(() => {
-    const now = new Date();
-    const year = now.getUTCFullYear();
-    const monthIndex = now.getUTCMonth();
-    const currentDay = now.getUTCDate();
+    const [year, month, currentDay] = getIndiaDateKey()
+      .split('-')
+      .map(Number);
+    const monthIndex = month - 1;
 
     const totals = new Map(
       dailySpending.map((item) => [item.date, item.amount])
@@ -1203,7 +1227,8 @@ const formatMonth = (value) => {
             {new Date().toLocaleDateString('en-IN', {
               weekday: 'long',
               day: 'numeric',
-              month: 'long'
+              month: 'long',
+              timeZone: REPORTING_TIME_ZONE
             }).toUpperCase()}
           </div>
           <h1>{greeting}, {firstName}<span className="wave">✳</span></h1>
@@ -2156,9 +2181,9 @@ function Modal({ type, transaction, defaultBudgetMonth, onClose, onSaved }) {
     category: transaction?.category || 'Food',
     merchant: transaction?.merchant || '',
     note: transaction?.note || '',
-    date: transaction ? dateForInput(transaction.date) : new Date().toISOString().slice(0, 10),
+    date: transaction ? dateForInput(transaction.date) : getIndiaDateKey(),
     paymentMethod: transaction?.paymentMethod || 'UPI',
-    month: defaultBudgetMonth || new Date().toISOString().slice(0, 7),
+    month: defaultBudgetMonth || getIndiaMonthKey(),
     limit: '',
     name: '',
     target: '',

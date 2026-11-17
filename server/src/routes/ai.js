@@ -5,6 +5,11 @@ import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { getFinancialIntelligence } from '../services/financialIntelligence.js';
 import { askLocalAI } from '../services/localAI.js';
+import {
+  getIndiaMonthKey,
+  getPreviousMonthKey,
+  getStoredDateMonthRange
+} from '../utils/reportingDates.js';
 
 
 // Only send the minimum required financial summaries to external AI providers.
@@ -104,24 +109,14 @@ router.post('/chat', asyncHandler(async (req, res) => {
   }
 
   const now = new Date();
+  const currentMonth = getIndiaMonthKey(now);
+  const previousMonth = getPreviousMonthKey(currentMonth);
 
-  const currentStart = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    1
-  ));
+  const { start: currentStart, end: nextStart } =
+    getStoredDateMonthRange(currentMonth);
 
-  const nextStart = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth() + 1,
-    1
-  ));
-
-  const previousStart = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth() - 1,
-    1
-  ));
+  const { start: previousStart } =
+    getStoredDateMonthRange(previousMonth);
 
   const monthLabel = (date) =>
     date.toLocaleString('en-IN', {
@@ -207,7 +202,7 @@ router.post('/chat', asyncHandler(async (req, res) => {
 
     Budget.find({
       user: req.user._id,
-      month: currentStart.toISOString().slice(0, 7)
+      month: currentMonth
     }).lean(),
 
     getFinancialIntelligence(req.user._id)

@@ -5,20 +5,15 @@ import Budget from '../models/Budget.js';
 import Transaction from '../models/Transaction.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import {
+  getIndiaMonthKey,
+  getStoredDateMonthRange
+} from '../utils/reportingDates.js';
 
 const router = Router();
 router.use(requireAuth);
 
 const monthPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
-
-function getMonthRange(month) {
-  const [year, monthNumber] = month.split('-').map(Number);
-
-  return {
-    start: new Date(Date.UTC(year, monthNumber - 1, 1)),
-    end: new Date(Date.UTC(year, monthNumber, 1))
-  };
-}
 
 function getBudgetStatus(percentage) {
   if (percentage >= 100) return 'over';
@@ -27,12 +22,12 @@ function getBudgetStatus(percentage) {
 }
 
 router.get('/', asyncHandler(async (req, res) => {
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonth = getIndiaMonthKey();
   const month = monthPattern.test(req.query.month || '')
     ? req.query.month
     : currentMonth;
 
-  const { start, end } = getMonthRange(month);
+  const { start, end } = getStoredDateMonthRange(month);
 
   const [budgetDocs, spending] = await Promise.all([
     Budget.find({
@@ -59,10 +54,12 @@ router.get('/', asyncHandler(async (req, res) => {
     ])
   ]);
 
+
   const spendingMap = new Map(
     spending.map((item) => [
       item._id,
       {
+        amountMinor: item.total,
         amount: item.total / 100,
         transactionCount: item.transactionCount
       }
@@ -71,6 +68,7 @@ router.get('/', asyncHandler(async (req, res) => {
 
   const budgets = budgetDocs.map((budget) => {
     const data = spendingMap.get(budget.category) || {
+      amountMinor: 0,
       amount: 0,
       transactionCount: 0
     };
@@ -78,9 +76,12 @@ router.get('/', asyncHandler(async (req, res) => {
     const limit = budget.limitMinor / 100;
     const spent = data.amount;
     const remaining = limit - spent;
-    const percentage = limit > 0
-     ? Math.round((spent / limit) * 100)
-     : 0;
+
+    const exactPercentage = budget.limitMinor > 0
+      ? (data.amountMinor / budget.limitMinor) * 100
+      : 0;
+
+    const percentage = Math.round(exactPercentage);
 
     return {
       id: budget._id,
@@ -92,7 +93,7 @@ router.get('/', asyncHandler(async (req, res) => {
       percentage,
       overBy: Math.max(0, spent - limit),
       transactionCount: data.transactionCount,
-      status: getBudgetStatus(percentage)
+      status: getBudgetStatus(exactPercentage)
     };
   });
 

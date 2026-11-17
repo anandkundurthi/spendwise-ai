@@ -1,5 +1,6 @@
 import Transaction from '../models/Transaction.js';
 import Budget from '../models/Budget.js';
+import { getIndiaMonthKey } from '../utils/reportingDates.js';
 
 const toRupees = (paise) => paise / 100;
 
@@ -8,7 +9,7 @@ const average = (values) =>
 
 
 function generateSpendingRecommendations(transactions, budgets, now) {
-  const month = now.toISOString().slice(0, 7);
+  const month = getIndiaMonthKey(now);
 
   const currentExpenses = transactions.filter((item) =>
     item.type === 'expense' &&
@@ -231,7 +232,7 @@ function detectUnusualSpending(transactions, now) {
 
 
 function calculateFinancialHealth(transactions, budgets, now) {
-  const month = now.toISOString().slice(0, 7);
+  const month = getIndiaMonthKey(now);
 
   const monthTransactions = transactions.filter(
     (item) => new Date(item.date).toISOString().slice(0, 7) === month
@@ -363,7 +364,7 @@ export async function getFinancialIntelligence(userId) {
   const historyStart = new Date(now);
   historyStart.setUTCDate(historyStart.getUTCDate() - 180);
 
-  const month = now.toISOString().slice(0, 7);
+  const month = getIndiaMonthKey(now);
 
   const [transactions, budgets] = await Promise.all([
     Transaction.find({
