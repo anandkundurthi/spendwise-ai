@@ -6,6 +6,91 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { getFinancialIntelligence } from '../services/financialIntelligence.js';
 import { askLocalAI } from '../services/localAI.js';
 
+
+// Only send the minimum required financial summaries to external AI providers.
+function buildAiSafeIntelligence(intelligence) {
+  return {
+    transactionCount: intelligence.transactionCount,
+
+    recurringExpenses: (intelligence.recurringExpenses || []).map(item => ({
+      category: item.category,
+      frequency: item.frequency,
+      averageAmount: item.averageAmount,
+      occurrences: item.occurrences,
+      confidence: item.confidence
+    })),
+
+    unusualSpending: (intelligence.unusualSpending || []).map(item => ({
+      category: item.category,
+      recentSpending: item.recentSpending,
+      historicalMonthlyAverage: item.historicalMonthlyAverage,
+      increasePercentage: item.increasePercentage
+    })),
+
+    financialHealth: {
+      score: intelligence.financialHealth?.score ?? null,
+      status: intelligence.financialHealth?.status,
+      explanation: intelligence.financialHealth?.explanation,
+      savingsRate: intelligence.financialHealth?.savingsRate,
+      recordedIncome: intelligence.financialHealth?.recordedIncome,
+      recordedExpenses: intelligence.financialHealth?.recordedExpenses,
+      recordedSavings: intelligence.financialHealth?.recordedSavings,
+      expenseTransactionCount:
+        intelligence.financialHealth?.expenseTransactionCount,
+      coverage: intelligence.financialHealth?.coverage
+    },
+
+    spendingRecommendations: {
+      month: intelligence.spendingRecommendations?.month,
+      transactionCount:
+        intelligence.spendingRecommendations?.transactionCount,
+      totalExpenses:
+        intelligence.spendingRecommendations?.totalExpenses,
+
+      categories: (intelligence.spendingRecommendations?.categories || [])
+        .map(item => ({
+          category: item.category,
+          amount: item.amount,
+          sharePercentage: item.sharePercentage
+        })),
+
+      budgetRecommendations:
+        (intelligence.spendingRecommendations?.budgetRecommendations || [])
+          .map(item => ({
+            category: item.category,
+            spent: item.spent,
+            budgetLimit: item.budgetLimit,
+            remaining: item.remaining,
+            usagePercentage: item.usagePercentage,
+            status: item.status
+          })),
+
+      recommendations:
+        (intelligence.spendingRecommendations?.recommendations || [])
+          .map(item => ({
+            type: item.type,
+            priority: item.priority,
+            category: item.category,
+            title: item.title,
+            message: item.message,
+            amount: item.amount
+          }))
+    },
+
+    categorySummary: (intelligence.categorySummary || []).map(item => ({
+      category: item.category,
+      amount: item.amount
+    })),
+
+    insights: (intelligence.insights || []).map(item => ({
+      type: item.type,
+      title: item.title,
+      message: item.message
+    }))
+  };
+}
+
+
 const router = Router(); router.use(requireAuth);
 
 
@@ -242,11 +327,7 @@ router.post('/chat', asyncHandler(async (req, res) => {
 
     budgets: budgetAnalysis,
 
-    spendingIntelligence: {
-      recurringExpenses: intelligence.recurringExpenses,
-      unusualSpending: intelligence.unusualSpending,
-      financialHealth: intelligence.financialHealth
-    }
+    spendingIntelligence: buildAiSafeIntelligence(intelligence)
   };
 
   // Only evaluate a purchase when the question expresses purchase intent.
@@ -291,19 +372,29 @@ router.post('/chat', asyncHandler(async (req, res) => {
 
   financialContext.purchaseAnalysis = purchaseAnalysis;
 
-  const history = Array.isArray(req.body.history)
-    ? req.body.history
-        .filter(item =>
-          item &&
-          ['user', 'assistant'].includes(item.role) &&
-          typeof item.content === 'string'
-        )
-        .slice(-10)
-        .map(item => ({
-          role: item.role,
-          content: item.content.slice(0, 2000)
-        }))
-    : [{ role: 'user', content: question }];
+
+const history = Array.isArray(req.body.history)
+  ? req.body.history
+      .filter(item =>
+        item &&
+        ['user', 'assistant'].includes(item.role) &&
+        typeof item.content === 'string' &&
+        item.content.trim().length > 0
+      )
+      .slice(-6)
+      .map(item => ({
+        role: item.role,
+        content: item.content.trim().slice(0, 1000)
+      }))
+  : [];
+
+if (history.length === 0) {
+  history.push({
+    role: 'user',
+    content: question.slice(0, 1000)
+  });
+}
+
 
   const messages = [
     {
@@ -349,25 +440,53 @@ router.post('/chat', asyncHandler(async (req, res) => {
     ...history
   ];
 
+
   try {
     const reply = await askLocalAI(messages);
 
     return res.json({
       reply,
-      mode: 'local',
+      mode: 'gemini',
       context: financialContext
     });
-  } catch (error) {
-    console.error('Local AI chat error:', error.message);
 
-    return res.json({
-      reply:
-        `I couldn't reach the local AI service just now. ` +
-        `Your recorded income for ${monthLabel(currentStart)} is ₹${currentIncome.toLocaleString('en-IN')} ` +
-        `and recorded expenses are ₹${currentExpenses.toLocaleString('en-IN')}. ` +
-        'Please try your question again when the local AI service is available.',
-      mode: 'basic',
-      context: financialContext
+
+
+
+    } catch (error) {
+    const errorText = [
+      error?.message,
+      error?.status,
+      error?.code
+    ].filter(Boolean).join(' ');
+
+    console.error('Gemini chat error:', errorText);
+
+    if (
+      /RESOURCE_EXHAUSTED|quota exceeded|free.?tier.*limit/i.test(errorText)
+    ) {
+      return res.status(429).json({
+        message:
+          'Your Gemini free-tier daily limit has been reached. AI chat will be available again after your quota resets. Please try again later.',
+        code: 'GEMINI_QUOTA_EXHAUSTED',
+        mode: 'unavailable'
+      });
+    }
+
+    if (/timed out|timeout/i.test(errorText)) {
+      return res.status(504).json({
+        message:
+          'Gemini is taking too long to respond to your question. Please try again later.',
+        code: 'GEMINI_TIMEOUT',
+        mode: 'unavailable'
+      });
+    }
+
+    return res.status(503).json({
+      message:
+        'SpendWise AI chat is temporarily unavailable because the Gemini service is experiencing an issue. Please try again later.',
+      code: 'GEMINI_TEMPORARILY_UNAVAILABLE',
+      mode: 'unavailable'
     });
   }
 }));
@@ -496,15 +615,41 @@ content:
     ]);
 
     return res.json({
-      mode: 'local',
+      mode: 'gemini',
       explanation,
       generatedAt: new Date().toISOString()
     });
-  } catch (error) {
-    console.error('Monthly AI report error:', error.message);
+    } catch (error) {
+    const errorText = [
+      error?.message,
+      error?.status,
+      error?.code
+    ].filter(Boolean).join(' ');
+
+    console.error('Gemini monthly report error:', errorText);
+
+    if (
+      /RESOURCE_EXHAUSTED|quota exceeded|free.?tier.*limit/i.test(errorText)
+    ) {
+      return res.status(429).json({
+        message:
+          'Your Gemini free-tier daily limit has been reached. Monthly AI reports will be available again after your quota resets. Please try again later.',
+        code: 'GEMINI_QUOTA_EXHAUSTED'
+      });
+    }
+
+    if (/timed out|timeout/i.test(errorText)) {
+      return res.status(504).json({
+        message:
+          'Gemini is taking too long to generate your monthly report. Please try again later.',
+        code: 'GEMINI_TIMEOUT'
+      });
+    }
 
     return res.status(503).json({
-      message: 'Local AI is unavailable. Please make sure Ollama is running.'
+      message:
+        'Monthly AI reports are temporarily unavailable because the Gemini service is experiencing an issue. Please try again later.',
+      code: 'GEMINI_TEMPORARILY_UNAVAILABLE'
     });
   }
 }));
@@ -552,28 +697,62 @@ content:
       },
       {
         role: 'user',
-        content: JSON.stringify(intelligence)
+        content: JSON.stringify(buildAiSafeIntelligence(intelligence))
       }
     ], 'json');
 
     const parsed = JSON.parse(aiResponse);
 
     return res.json({
-      mode: 'local',
+      mode: 'gemini',
       aiInsights: Array.isArray(parsed.aiInsights)
         ? parsed.aiInsights.slice(0, 5)
         : fallbackInsights,
       intelligence
     });
   } catch (error) {
-    console.error('Local AI insights error:', error.message);
+    const errorText = [
+      error?.message,
+      error?.status,
+      error?.code
+    ].filter(Boolean).join(' ');
 
-    return res.json({
-      mode: 'basic',
-      aiInsights: fallbackInsights,
+    console.error('Gemini insights error:', errorText);
+
+    if (
+      /RESOURCE_EXHAUSTED|quota exceeded|free.?tier.*limit/i.test(errorText)
+    ) {
+      return res.status(429).json({
+        message:
+          'Your Gemini free-tier daily limit has been reached. AI insights are temporarily unavailable until your quota resets.',
+        code: 'GEMINI_QUOTA_EXHAUSTED',
+        mode: 'unavailable',
+        aiInsights: [],
+        intelligence
+      });
+    }
+
+    if (/timed out|timeout/i.test(errorText)) {
+      return res.status(504).json({
+        message:
+          'Gemini is taking too long to generate financial insights. Please try again later.',
+        code: 'GEMINI_TIMEOUT',
+        mode: 'unavailable',
+        aiInsights: [],
+        intelligence
+      });
+    }
+
+    return res.status(503).json({
+      message:
+        'AI financial insights are temporarily unavailable because the Gemini service is experiencing an issue.',
+      code: 'GEMINI_TEMPORARILY_UNAVAILABLE',
+      mode: 'unavailable',
+      aiInsights: [],
       intelligence
     });
   }
+
 }));
 
 

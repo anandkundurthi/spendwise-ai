@@ -24,13 +24,19 @@ app.use('/uploads', express.static(uploadsDirectory, {
 }));
 
 app.use(helmet());
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  ...(process.env.NODE_ENV !== 'production'
+    ? [
+        'http://localhost:5173',
+        'http://localhost:5174',
+        'http://localhost:5175'
+      ]
+    : [])
+].filter(Boolean);
+
 app.use(cors({
-  origin: [
-    process.env.CLIENT_URL,
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'http://localhost:5175'
-  ].filter(Boolean)
+  origin: allowedOrigins
 }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
@@ -47,6 +53,13 @@ app.use('/api/v1/auth/login', rateLimit({
 app.use('/api/v1/auth/register', rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false
+}));
+// Limit repeated profile avatar uploads.
+app.use('/api/v1/auth/profile/avatar', rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
   standardHeaders: 'draft-7',
   legacyHeaders: false
 }));

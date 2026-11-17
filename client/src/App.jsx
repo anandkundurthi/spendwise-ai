@@ -96,6 +96,8 @@ export default function App() {
   ]);
   const [chatInput, setChatInput] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState('');
+  const [chatRetry, setChatRetry] = useState(null);
   const [mobileNav, setMobileNav] = useState(false);
   const [error, setError] = useState('');
   const [profileOpen, setProfileOpen] = useState(false);
@@ -107,7 +109,42 @@ const [profileForm, setProfileForm] = useState({
   phone: ''
 });
 
-  async function refresh() {
+async function loadIntelligence() {
+  try {
+    setIntelligenceLoading(true);
+    setIntelligenceError('');
+
+    const [intelligenceResult, aiResult] = await Promise.allSettled([
+      api('/dashboard/intelligence'),
+      api('/ai/insights')
+    ]);
+
+    const errors = [];
+
+    // Preserve backend-generated financial intelligence independently.
+    if (intelligenceResult.status === 'fulfilled') {
+      setFinancialIntelligence(intelligenceResult.value);
+    } else {
+      errors.push(intelligenceResult.reason.message);
+    }
+
+    // Gemini AI insights are handled independently.
+    if (aiResult.status === 'fulfilled') {
+      setAiInsights(aiResult.value.aiInsights || []);
+      setAiInsightsMode(aiResult.value.mode || 'gemini');
+    } else {
+      setAiInsights([]);
+      setAiInsightsMode('unavailable');
+      errors.push(aiResult.reason.message);
+    }
+
+    setIntelligenceError(errors.join(' '));
+  } finally {
+    setIntelligenceLoading(false);
+  }
+}
+
+async function refresh() {
   const [me, dash, tx, bd, gl] = await Promise.all([
     api('/auth/me'),
     api('/dashboard/summary'),
@@ -123,37 +160,32 @@ const [profileForm, setProfileForm] = useState({
   setUnbudgetedSpending(bd.unbudgetedSpending || []);
   setBudgetInsights(bd.insights || []);
   setGoals(gl.goals);
-  try {
-  setIntelligenceLoading(true);
-  setIntelligenceError('');
 
-  const [intelligence, aiResult] = await Promise.all([
-    api('/dashboard/intelligence'),
-    api('/ai/insights')
-  ]);
-
-  setFinancialIntelligence(intelligence);
-  setAiInsights(aiResult.aiInsights || []);
-  setAiInsightsMode(aiResult.mode || 'basic');
-
-} catch (err) {
-  setIntelligenceError(err.message);
-} finally {
-  setIntelligenceLoading(false);
-}
+  // Load intelligence separately without blocking the dashboard.
+  void loadIntelligence();
 }
 
-  useEffect(() => {
-    if (token) {
-      refresh()
-        .catch((e) => {
-          setError(e.message);
+
+
+useEffect(() => {
+  if (token) {
+    refresh()
+      .then(() => {
+        setError('');
+      })
+      .catch((e) => {
+        setError(e.message);
+
+        if (e.status === 401) {
           localStorage.removeItem('spendwise_token');
           setToken(null);
-        })
-        .finally(() => setLoading(false));
-    }
-  }, [token]);
+          setUser(null);
+        }
+      })
+      .finally(() => setLoading(false));
+  }
+}, [token]);
+
 
   useEffect(() => {
     if (!token) return;
@@ -233,6 +265,54 @@ async function saveProfile(avatarFile) {
 }
 
 
+
+
+async function requestChat(question, history) {
+  setChatBusy(true);
+  setChatError('');
+
+  try {
+    const result = await api('/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        message: question,
+        history: history.slice(-10).map((item) => ({
+          role: item.role,
+          content: item.text
+        }))
+      })
+    });
+
+    setChat((previous) => [
+      ...previous,
+      {
+        role: 'assistant',
+        text: result.reply || 'I could not generate a response. Please try again.'
+      }
+    ]);
+
+    setChatError('');
+    setChatRetry(null);
+  } catch (err) {
+    const quotaExhausted =
+      err.code === 'GEMINI_QUOTA_EXHAUSTED' ||
+      err.status === 429;
+
+    setChatError(
+      quotaExhausted
+        ? err.message
+        : err.message || 'SpendWise AI is temporarily unavailable. Please try again shortly.'
+    );
+
+    setChatRetry(
+      quotaExhausted ? null : { question, history }
+    );
+  } finally {
+    setChatBusy(false);
+  }
+}
+
+
 async function sendChat(event) {
   event.preventDefault();
 
@@ -247,42 +327,21 @@ async function sendChat(event) {
 
   setChat(updatedChat);
   setChatInput('');
-  setChatBusy(true);
+  setChatError('');
+  setChatRetry(null);
 
-  try {
-    const result = await api('/ai/chat', {
-      method: 'POST',
-      body: JSON.stringify({
-        message: question,
-        history: updatedChat.slice(-10).map((item) => ({
-          role: item.role,
-          content: item.text
-        }))
-      })
-    });
-
-    setChat((previous) => [
-      ...previous,
-      {
-        role: 'assistant',
-        text: result.reply || 'I could not generate a response. Please try again.'
-      }
-    ]);
-  } catch (err) {
-    setChat((previous) => [
-      ...previous,
-      {
-        role: 'assistant',
-        text: 'I could not connect to the financial assistant. Please try again. ' +
-          (err.message || '')
-      }
-    ]);
-  } finally {
-    setChatBusy(false);
-  }
+  await requestChat(question, updatedChat);
 }
 
-  
+async function retryChat() {
+  if (!chatRetry || chatBusy) return;
+
+  await requestChat(
+    chatRetry.question,
+    chatRetry.history
+  );
+}
+
 
 async function generateMonthlyReport() {
   if (!monthlyComparison || monthlyReportLoading) return;
@@ -783,6 +842,32 @@ async function downloadMonthlyReport() {
                 </div>
               </div>
             ))}
+
+
+
+              {chatError && (
+                <div className="chat-message assistant">
+                  <div className="mini-avatar">
+                    <Sparkles size={13} />
+                  </div>
+                  <div className="bubble">
+                    <div>{chatError}</div>
+
+                    {chatRetry && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={retryChat}
+                        disabled={chatBusy}
+                        style={{ marginTop: '10px' }}
+                      >
+                        <span>Retry</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
 
             {chatBusy && (
               <div className="chat-message assistant">
@@ -1318,7 +1403,7 @@ const formatMonth = (value) => {
 
 
   {monthlyReportLoading && (
-    <p>Ollama is analysing your monthly financial data...</p>
+    <p>Gemini is analysing your monthly financial data...</p>
   )}
 
   {monthlyReportError && (
@@ -2965,8 +3050,8 @@ function Intelligence({
         <div className="panel-heading">
           <div>
             <span className="section-kicker">
-              {aiInsights.length > 0 && aiInsightsMode === 'local'
-                ? 'LOCAL AI-POWERED OBSERVATIONS'
+              {aiInsights.length > 0 && aiInsightsMode === 'gemini'
+                ? 'GEMINI AI-POWERED OBSERVATIONS'
                 : aiInsights.length > 0 && aiInsightsMode === 'ai'
                   ? 'AI-POWERED OBSERVATIONS'
                   : 'PERSONALISED OBSERVATIONS'}
@@ -2974,8 +3059,8 @@ function Intelligence({
             <h3>Your spending insights</h3>
             <small>
               {aiInsights.length
-                ? aiInsightsMode === 'local'
-                  ? 'Local AI-powered observations · Ollama'
+                ? aiInsightsMode === 'gemini'
+                  ? 'Gemini AI-powered observations'
                   : aiInsightsMode === 'ai'
                     ? 'AI-powered observations'
                     : 'Rule-based observations'

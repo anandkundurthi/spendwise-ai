@@ -130,7 +130,7 @@ router.post('/login', asyncHandler(async (req, res) => {
 
   const user = await User.findOne({
     email: parsed.data.email.toLowerCase()
-  });
+  }).select('+passwordHash');
 
   if (
     !user ||

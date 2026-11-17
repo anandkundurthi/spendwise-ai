@@ -78,7 +78,9 @@ router.get('/', asyncHandler(async (req, res) => {
     const limit = budget.limitMinor / 100;
     const spent = data.amount;
     const remaining = limit - spent;
-    const percentage = Math.round((spent / limit) * 100);
+    const percentage = limit > 0
+     ? Math.round((spent / limit) * 100)
+     : 0;
 
     return {
       id: budget._id,

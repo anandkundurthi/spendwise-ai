@@ -1,4 +1,3 @@
-
 import mongoose from 'mongoose';
 
 const budgetSchema = new mongoose.Schema({
@@ -17,7 +16,8 @@ const budgetSchema = new mongoose.Schema({
   limitMinor: {
     type: Number,
     required: true,
-    min: 1
+    min: 1,
+    max: 10000000000
   },
   month: {
     type: String,

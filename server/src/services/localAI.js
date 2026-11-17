@@ -1,37 +1,24 @@
 
-const OLLAMA_URL =
-  process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
+import { askGeminiAI } from './geminiAI.js';
 
-const OLLAMA_MODEL =
-  process.env.OLLAMA_MODEL || 'llama3.2:3b';
+const GEMINI_TIMEOUT_MS = 45_000;
 
-export async function askLocalAI(messages, format) {
-  const response = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: OLLAMA_MODEL,
-      messages,
-      stream: false,
-      ...(format ? { format } : {})
-    })
+function withTimeout(promise, timeoutMs) {
+  let timeoutId;
+
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error('Gemini request timed out.'));
+    }, timeoutMs);
   });
 
-  const data = await response.json();
+  return Promise.race([promise, timeout])
+    .finally(() => clearTimeout(timeoutId));
+}
 
-  if (!response.ok) {
-    throw new Error(
-      data.error || 'Local AI service request failed.'
-    );
-  }
-
-  const content = data.message?.content?.trim();
-
-  if (!content) {
-    throw new Error('Local AI returned an empty response.');
-  }
-
-  return content;
+export async function askLocalAI(messages, format) {
+  return withTimeout(
+    askGeminiAI(messages, format),
+    GEMINI_TIMEOUT_MS
+  );
 }

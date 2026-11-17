@@ -18,10 +18,9 @@ const schema = z.object({
   category: z.string().trim().min(1).max(60),
   merchant: z.string().max(100).optional(),
   note: z.string().max(500).optional(),
-  date: z.string().refine(
-    value => !Number.isNaN(Date.parse(value)),
-    'Please provide a valid date.'
-  ),
+  date: z.iso.date({
+    error: 'Please provide a valid date.'
+  }),
   paymentMethod: z.enum([
     'UPI',
     'Cash',
