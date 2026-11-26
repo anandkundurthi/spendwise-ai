@@ -1,0 +1,34 @@
+import mongoose from 'mongoose';
+
+const goalSchema = new mongoose.Schema({
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true
+  },
+  name: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: 100
+  },
+  targetMinor: {
+    type: Number,
+    required: true,
+    min: 1,
+    max: 10000000000
+  },
+  savedMinor: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 10000000000
+  },
+  targetDate: {
+    type: Date,
+    default: null
+  }
+}, { timestamps: true });
+
+export default mongoose.model('Goal', goalSchema);

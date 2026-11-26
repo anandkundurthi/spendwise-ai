@@ -28,6 +28,10 @@ uploads/
 .DS_Store
 .vscode/
 
-# AWS deployment artifacts kept locally
-/deployment/
+# AWS deployment artifacts
+/deployment/*.zip
+*.backup
 /server/src/lambda.js
+
+# Generated frontend build inside Lambda package
+/deployment/lambda/client/dist/
