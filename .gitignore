@@ -27,3 +27,7 @@ uploads/
 # OS and editor files
 .DS_Store
 .vscode/
+
+# AWS deployment artifacts kept locally
+/deployment/
+/server/src/lambda.js

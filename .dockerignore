@@ -1,0 +1,12 @@
+.git
+/deployment/
+/server/src/lambda.js
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+**/dist
+**/coverage
+**/*.log
+.DS_Store
+server/uploads
