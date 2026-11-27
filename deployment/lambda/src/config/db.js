@@ -1,4 +1,7 @@
+
 import mongoose from 'mongoose';
+
+let connectionPromise;
 
 export async function connectDB() {
   if (!process.env.MONGODB_URI) {
@@ -7,10 +10,23 @@ export async function connectDB() {
 
   mongoose.set('strictQuery', true);
 
-  await mongoose.connect(process.env.MONGODB_URI, {
+  if (mongoose.connection.readyState === 1) {
+    return;
+  }
+
+  if (connectionPromise) {
+    return connectionPromise;
+  }
+
+  connectionPromise = mongoose.connect(process.env.MONGODB_URI, {
     serverSelectionTimeoutMS: 10000,
     connectTimeoutMS: 10000
   });
 
-  console.log(`MongoDB connected: ${mongoose.connection.host}`);
+  try {
+    await connectionPromise;
+    console.log(`MongoDB connected: ${mongoose.connection.host}`);
+  } finally {
+    connectionPromise = undefined;
+  }
 }

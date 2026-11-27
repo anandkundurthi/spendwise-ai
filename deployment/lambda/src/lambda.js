@@ -26,5 +26,9 @@ export const handler = async (event, context) => {
   }
 
   const serverlessHandler = await initializationPromise;
+
+  // Verify or restore MongoDB connection before handling requests.
+  await connectDB();
+
   return serverlessHandler(event, context);
 };
