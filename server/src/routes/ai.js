@@ -552,8 +552,8 @@ router.post('/monthly-report', asyncHandler(async (req, res) => {
     const explanation = await askLocalAI([
       {
         role: 'system',
-        
-  
+
+
 content:
   'You are SpendWise, a careful personal finance assistant for India. ' +
   'Write a concise, friendly monthly financial report using only the supplied data. ' +
@@ -659,9 +659,9 @@ router.get('/insights', asyncHandler(async (req, res) => {
     const aiResponse = await askLocalAI([
       {
         role: 'system',
-        
+
 content:
-    
+
 'You are SpendWise, a careful personal finance assistant for India. ' +
 'Explain the supplied backend financial data in simple, helpful language. ' +
 

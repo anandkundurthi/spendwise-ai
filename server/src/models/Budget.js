@@ -32,4 +32,3 @@ budgetSchema.index(
 );
 
 export default mongoose.model('Budget', budgetSchema);
-

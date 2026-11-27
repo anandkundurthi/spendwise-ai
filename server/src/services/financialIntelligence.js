@@ -211,7 +211,7 @@ function detectUnusualSpending(transactions, now) {
 
     if (historicalCount < 3) continue;
     const averageMonthly = previousTotal / 3;
-    
+
     if (averageMonthly < 10000) continue;
 
     const increase = ((currentTotal - averageMonthly) / averageMonthly) * 100;

@@ -256,4 +256,3 @@ router.get('/intelligence', asyncHandler(async (req, res) => {
 }));
 
 export default router;
-

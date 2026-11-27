@@ -4,6 +4,7 @@ import { z } from 'zod';
 import Budget from '../models/Budget.js';
 import Transaction from '../models/Transaction.js';
 import { requireAuth } from '../middleware/auth.js';
+import { positiveAmountSchema } from '../utils/moneyValidation.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import {
   getIndiaMonthKey,
@@ -174,7 +175,7 @@ router.get('/', asyncHandler(async (req, res) => {
 router.post('/', asyncHandler(async (req, res) => {
   const parsed = z.object({
     category: z.string().trim().min(1).max(60),
-    limit: z.number().positive().max(100000000),
+    limit: positiveAmountSchema,
     month: z.string().regex(monthPattern)
   }).safeParse(req.body);
 

@@ -5,6 +5,7 @@ import { z } from 'zod';
 
 import Transaction from '../models/Transaction.js';
 import { requireAuth } from '../middleware/auth.js';
+import { positiveAmountSchema } from '../utils/moneyValidation.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
 const router = Router();
@@ -14,7 +15,7 @@ router.use(requireAuth);
 // Validate transaction input
 const schema = z.object({
   type: z.enum(['income', 'expense', 'transfer']),
-  amount: z.number().positive().max(100000000),
+  amount: positiveAmountSchema,
   category: z.string().trim().min(1).max(60),
   merchant: z.string().max(100).optional(),
   note: z.string().max(500).optional(),
@@ -228,4 +229,3 @@ router.delete('/:id', asyncHandler(async (req, res) => {
 }));
 
 export default router;
-
