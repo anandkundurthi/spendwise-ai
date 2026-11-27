@@ -1,5 +1,14 @@
 
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:5001/api/v1';
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
+
+if (!configuredApiUrl && !import.meta.env.DEV) {
+  throw new Error(
+    'VITE_API_URL must be configured for production.'
+  );
+}
+
+const BASE =
+  configuredApiUrl || 'http://localhost:5001/api/v1';
 
 export function getToken() {
   return localStorage.getItem('spendwise_token');
