@@ -362,7 +362,7 @@ async function generateMonthlyReport() {
     const result = await api('/ai/monthly-report', {
       method: 'POST',
       body: JSON.stringify({
-        report: monthlyComparison
+        month: monthlyComparison.month
       })
     });
 

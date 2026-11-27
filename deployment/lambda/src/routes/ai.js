@@ -1,10 +1,12 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import Transaction from '../models/Transaction.js';
 import Budget from '../models/Budget.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { getFinancialIntelligence } from '../services/financialIntelligence.js';
 import { askLocalAI } from '../services/localAI.js';
+import { getMonthlyComparison } from '../services/monthlyComparison.js';
 import {
   getIndiaMonthKey,
   getPreviousMonthKey,
@@ -96,7 +98,22 @@ function buildAiSafeIntelligence(intelligence) {
 }
 
 
-const router = Router(); router.use(requireAuth);
+const router = Router();
+
+router.use(requireAuth);
+
+// Limit AI usage per authenticated user.
+router.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  keyGenerator: (req) => req.user._id.toString(),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: {
+    message: 'You have reached the AI usage limit. Please try again in 15 minutes.',
+    code: 'AI_RATE_LIMIT_EXCEEDED'
+  }
+}));
 
 
 router.post('/chat', asyncHandler(async (req, res) => {
@@ -489,62 +506,40 @@ if (history.length === 0) {
 
 
 router.post('/monthly-report', asyncHandler(async (req, res) => {
-  const report = req.body.report;
+  const month = req.body?.month;
+  const monthPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-  if (!report || typeof report !== 'object') {
+  if (typeof month !== 'string' || !monthPattern.test(month)) {
     return res.status(400).json({
-      message: 'Monthly report data is required.'
+      message: 'A valid report month in YYYY-MM format is required.'
     });
   }
 
-  const required = [
-    'month',
-    'previousMonth',
-    'current',
-    'previous',
-    'categoryComparison'
-  ];
-
-  if (!required.every(key =>
-    Object.prototype.hasOwnProperty.call(report, key)
-  )) {
-    return res.status(400).json({
-      message: 'Monthly report data is incomplete.'
-    });
-  }
-
-  if (
-    !Array.isArray(report.categoryComparison) ||
-    !report.current ||
-    !report.previous
-  ) {
-    return res.status(400).json({
-      message: 'Invalid monthly report structure.'
-    });
-  }
+  // Always calculate report figures from the authenticated user's database records.
+  const report = await getMonthlyComparison(req.user._id, month);
 
   const safeReport = {
     month: report.month,
     previousMonth: report.previousMonth,
     current: {
-      income: Number(report.current.income) || 0,
-      expenses: Number(report.current.expenses) || 0,
-      netCashFlow: Number(report.current.netCashFlow) || 0,
-      transactionCount: Number(report.current.transactionCount) || 0,
-      hasRecords: Boolean(report.current.hasRecords)
+      income: report.current.income,
+      expenses: report.current.expenses,
+      netCashFlow: report.current.netCashFlow,
+      transactionCount: report.current.transactionCount,
+      hasRecords: report.current.hasRecords
     },
     previous: {
-      income: Number(report.previous.income) || 0,
-      expenses: Number(report.previous.expenses) || 0,
-      netCashFlow: Number(report.previous.netCashFlow) || 0,
-      transactionCount: Number(report.previous.transactionCount) || 0,
-      hasRecords: Boolean(report.previous.hasRecords)
+      income: report.previous.income,
+      expenses: report.previous.expenses,
+      netCashFlow: report.previous.netCashFlow,
+      transactionCount: report.previous.transactionCount,
+      hasRecords: report.previous.hasRecords
     },
     categoryComparison: report.categoryComparison.map(item => ({
-      category: String(item.category || ''),
-      current: Number(item.current) || 0,
-      previous: Number(item.previous) || 0,
-      hasPreviousRecords: Boolean(item.hasPreviousRecords)
+      category: item.category,
+      current: item.current,
+      previous: item.previous,
+      hasPreviousRecords: item.hasPreviousRecords
     }))
   };
 
@@ -552,59 +547,38 @@ router.post('/monthly-report', asyncHandler(async (req, res) => {
     const explanation = await askLocalAI([
       {
         role: 'system',
-
-
-content:
-  'You are SpendWise, a careful personal finance assistant for India. ' +
-  'Write a concise, friendly monthly financial report using only the supplied data. ' +
-
-  'FINANCIAL ACCURACY RULES: ' +
-  'Never invent, estimate, or change financial figures. ' +
-  'The supplied backend figures are the only source of truth. ' +
-  'A value of zero means zero recorded activity, not missing data. ' +
-
-  'STRICT HISTORICAL COMPARISON RULES: ' +
-  'If previous.hasRecords is false, do not describe any category as increased, decreased, stable, or unchanged. ' +
-  'Never use zero as a previous-month category value when historical records are unavailable. ' +
-  'Do not calculate percentage changes without a valid previous-month baseline. ' +
-  'State clearly that historical comparison is unavailable. ' +
-  'Only describe current-month recorded amounts as facts. ' +
-  'Do not invent spending trends or behavioural changes. ' +
-
-  'PREVIOUS MONTH COMPARISON: ' +
-  'If previous.hasRecords is false, previous-month data is unavailable. ' +
-  'Never describe current spending as an increase, decrease, rise, fall, growth, or reduction compared with unavailable data. ' +
-  'Never interpret a missing previous-month value as zero spending. ' +
-  'Do not calculate percentage changes without a valid previous-month baseline. ' +
-
-  'INCOME AND CASH FLOW: ' +
-  'If current.income is zero, say that no income transactions are recorded for this month. ' +
-  'Do not say income is unavailable merely because previous-month records are missing. ' +
-  'Explain net cash flow using the supplied value. ' +
-  'Net cash flow is the difference between recorded income and expenses. ' +
-  'Never describe net cash flow as a bank balance, account balance, or available cash. ' +
-  'Do not assess savings rate or purchase affordability without reliable income data. ' +
-
-  'CATEGORY ANALYSIS: ' +
-  'Report current category spending accurately. ' +
-  'If previous-month category records are unavailable, say that a comparison cannot be made. ' +
-  'Do not describe any category as increasing or decreasing without valid comparison data. ' +
-
-  'OBSERVATIONS: ' +
-  'Distinguish recorded facts from observations. ' +
-  'Give at most three practical budgeting observations based only on available evidence. ' +
-  'Do not invent spending patterns or recurring expenses. ' +
-  'Do not provide investment, tax, or debt advice. ' +
-
-  'Use INR formatting. Use clear Markdown headings, short paragraphs, and readable bullet points. ' +
-  'Keep the report concise and easy to understand.'
-
-
+        content:
+          'You are SpendWise, a careful personal finance assistant for India. ' +
+          'Write a concise, friendly monthly financial report using only the supplied data. ' +
+          'FINANCIAL ACCURACY RULES: Never invent, estimate, or change financial figures. ' +
+          'The supplied backend figures are the only source of truth. ' +
+          'A value of zero means zero recorded activity, not missing data. ' +
+          'STRICT HISTORICAL COMPARISON RULES: If previous.hasRecords is false, do not describe any category as increased, decreased, stable, or unchanged. ' +
+          'Never use zero as a previous-month category value when historical records are unavailable. ' +
+          'Do not calculate percentage changes without a valid previous-month baseline. ' +
+          'State clearly that historical comparison is unavailable. ' +
+          'Never describe current spending as an increase, decrease, rise, fall, growth, or reduction when previous-month data is unavailable. ' +
+          'Never interpret missing previous-month data as zero spending. ' +
+          'Only describe current-month recorded amounts as facts. ' +
+          'Do not invent spending trends or behavioural changes. ' +
+          'INCOME AND CASH FLOW: If current.income is zero, say that no income transactions are recorded for this month. ' +
+          'Explain net cash flow using the supplied value. ' +
+          'Net cash flow is the difference between recorded income and expenses. ' +
+          'Never describe net cash flow as a bank balance, account balance, or available cash. ' +
+          'Do not assess savings rate or purchase affordability without reliable income data. ' +
+          'CATEGORY ANALYSIS: Report current category spending accurately. ' +
+          'If previous-month category records are unavailable, say that a comparison cannot be made. ' +
+          'Do not describe any category as increasing or decreasing without valid comparison data. ' +
+          'OBSERVATIONS: Distinguish recorded facts from observations. ' +
+          'Give at most three practical budgeting observations based only on available evidence. ' +
+          'Do not invent spending patterns or recurring expenses. ' +
+          'Do not provide investment, tax, or debt advice. ' +
+          'Use INR formatting. Use clear Markdown headings, short paragraphs, and readable bullet points. ' +
+          'Keep the report concise and easy to understand.'
       },
       {
         role: 'user',
-        content:
-          'Create my monthly financial report from this data:\n' +
+        content: 'Create my monthly financial report from this data:\n' +
           JSON.stringify(safeReport)
       }
     ]);
@@ -614,7 +588,7 @@ content:
       explanation,
       generatedAt: new Date().toISOString()
     });
-    } catch (error) {
+  } catch (error) {
     const errorText = [
       error?.message,
       error?.status,
@@ -623,9 +597,7 @@ content:
 
     console.error('Gemini monthly report error:', errorText);
 
-    if (
-      /RESOURCE_EXHAUSTED|quota exceeded|free.?tier.*limit/i.test(errorText)
-    ) {
+    if (/RESOURCE_EXHAUSTED|quota exceeded|free.?tier.*limit/i.test(errorText)) {
       return res.status(429).json({
         message:
           'Your Gemini free-tier daily limit has been reached. Monthly AI reports will be available again after your quota resets. Please try again later.',
