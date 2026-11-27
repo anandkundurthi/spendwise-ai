@@ -1,6 +1,15 @@
 import React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { api, getToken, assetUrl } from './services/api';
+import TransactionRows from './components/TransactionRows';
+import {
+  money,
+  categories,
+  REPORTING_TIME_ZONE,
+  getIndiaDateKey,
+  getIndiaMonthKey,
+  dateForInput
+} from './utils/dashboard';
 import {
   Wallet, LayoutDashboard, ArrowLeftRight, Target, Sparkles, Plus,
   Search, Bell, ArrowUpRight, ArrowDownRight, Coffee, ShoppingBasket,
@@ -8,18 +17,6 @@ import {
   LogOut, Menu, CalendarDays, ReceiptText, CircleHelp, LoaderCircle,
   Trash2
 } from 'lucide-react';
-
-const money = (n) =>
-  new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0
-  }).format(n || 0);
-
-const categories = [
-  'Food', 'Groceries', 'Transport', 'Housing', 'Health',
-  'Shopping', 'Bills', 'Education', 'Entertainment', 'Salary', 'Other'
-];
 
 const icons = {
   Food: Utensils,
@@ -35,27 +32,21 @@ const icons = {
   Other: MoreHorizontal
 };
 
-const REPORTING_TIME_ZONE = 'Asia/Kolkata';
+const LazyTransactions = React.lazy(() =>
+  import('./components/views/Transactions.jsx')
+);
 
-const getIndiaDateKey = (date = new Date()) =>
-  new Intl.DateTimeFormat('en-CA', {
-    timeZone: REPORTING_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).format(date);
+const LazyBudgets = React.lazy(() =>
+  import('./components/views/Budgets.jsx')
+);
 
-const getIndiaMonthKey = (date = new Date()) =>
-  getIndiaDateKey(date).slice(0, 7);
+const LazyGoals = React.lazy(() =>
+  import('./components/views/Goals.jsx')
+);
 
-const dateForInput = (value) => {
-  if (!value) return getIndiaDateKey();
-  const dateString = String(value);
-  if (/^\d{4}-\d{2}-\d{2}/.test(dateString)) {
-    return dateString.slice(0, 10);
-  }
-  return getIndiaDateKey(new Date(value));
-};
+const LazyIntelligence = React.lazy(() =>
+  import('./components/views/Intelligence.jsx')
+);
 
 const LazySpendingChart = React.lazy(() =>
   import('./components/SpendingChart.jsx')
@@ -771,33 +762,53 @@ async function downloadMonthlyReport() {
           )}
 
           {view === 'Transactions' && (
-            <Transactions
-              transactions={transactions}
-              onAdd={openNewTransaction}
-              onEdit={openEditTransaction}
-              onDelete={deleteTransaction}
-            />
+            <React.Suspense
+              fallback={<div className="empty-chart">Loading transactions...</div>}
+            >
+              <LazyTransactions
+                transactions={transactions}
+                onAdd={openNewTransaction}
+                onEdit={openEditTransaction}
+                onDelete={deleteTransaction}
+                icons={icons}
+              />
+            </React.Suspense>
           )}
 
           {view === 'Budgets' && (
-            <Budgets
-               budgets={budgets}
-               unbudgetedSpending={unbudgetedSpending}
-               insights={budgetInsights}
-               comparison={monthlyComparison}
-               month={selectedBudgetMonth}
-               onMonthChange={setSelectedBudgetMonth}
-               onAdd={() => setModal('budget')}
-            />
-           )}
+            <React.Suspense
+              fallback={<div className="empty-chart">Loading budgets...</div>}
+            >
+              <LazyBudgets
+                budgets={budgets}
+                unbudgetedSpending={unbudgetedSpending}
+                insights={budgetInsights}
+                comparison={monthlyComparison}
+                month={selectedBudgetMonth}
+                onMonthChange={setSelectedBudgetMonth}
+                onAdd={() => setModal('budget')}
+                icons={icons}
+              />
+            </React.Suspense>
+          )}
 
           {view === 'Goals' && (
-            <Goals goals={goals} onAdd={() => setModal('goal')} />
+            <React.Suspense
+              fallback={<div className="empty-chart">Loading goals...</div>}
+            >
+              <LazyGoals
+                goals={goals}
+                onAdd={() => setModal('goal')}
+              />
+            </React.Suspense>
           )}
          
           
           {view === 'Intelligence' && (
-              <Intelligence
+            <React.Suspense
+              fallback={<div className="empty-chart">Loading intelligence...</div>}
+            >
+              <LazyIntelligence
                 data={financialIntelligence}
                 loading={intelligenceLoading}
                 error={intelligenceError}
@@ -814,17 +825,17 @@ async function downloadMonthlyReport() {
                     setFinancialIntelligence(result);
                     setAiInsights(aiResult.aiInsights || []);
                     setAiInsightsMode(aiResult.mode || 'basic');
-
                   } catch (err) {
                     setIntelligenceError(err.message);
                   } finally {
                     setIntelligenceLoading(false);
                   }
-            }}
-            onChat={() => setChatOpen(true)}
-            aiInsights={aiInsights}
-            aiInsightsMode={aiInsightsMode}
-          />
+                }}
+                onChat={() => setChatOpen(true)}
+                aiInsights={aiInsights}
+                aiInsightsMode={aiInsightsMode}
+              />
+            </React.Suspense>
           )}
         </div>
       </main>
@@ -1555,7 +1566,7 @@ const formatMonth = (value) => {
           </div>
 
           {transactions.length ? (
-            <TransactionRows transactions={transactions.slice(0, 5)} />
+            <TransactionRows transactions={transactions.slice(0, 5)} icons={icons} />
           ) : (
             <div className="empty-small">
               No transactions yet. Your first entry can be as simple as today's coffee.
@@ -1594,532 +1605,6 @@ const formatMonth = (value) => {
             </div>
           )}
         </section>
-      </div>
-    </>
-  );
-}
-
-function TransactionRows({ transactions, onEdit, onDelete }) {
-  return (
-    <div className="transaction-list">
-      {transactions.map((t) => {
-        const Icon = icons[t.category] || MoreHorizontal;
-
-        return (
-          <div className="transaction-row" key={t.id}>
-            <div className="transaction-icon"><Icon size={17} /></div>
-
-            <div className="transaction-description">
-              <strong>{t.merchant || t.category}</strong>
-              <span>
-                {t.category} · {t.paymentMethod || 'Other'} ·
-                {' '}{new Date(t.date).toLocaleDateString('en-IN', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric'
-                })}
-              </span>
-              {t.note && <small className="transaction-note">{t.note}</small>}
-            </div>
-
-            <strong className={`transaction-amount ${t.type}`}>
-              {t.type === 'income' ? '+' : t.type === 'expense' ? '−' : ''}
-              {money(t.amount)}
-            </strong>
-
-            {(onEdit || onDelete) && (
-              <div className="transaction-actions">
-                {onEdit && (
-                  <button
-                    className="edit-button"
-                    onClick={() => onEdit(t)}
-                    title="Edit transaction"
-                    type="button"
-                  >
-                    Edit
-                  </button>
-                )}
-                {onDelete && (
-                  <button
-                    className="delete-button"
-                    onClick={() => onDelete(t.id)}
-                    title="Delete transaction"
-                    type="button"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function Transactions({ transactions, onAdd, onEdit, onDelete }) {
-  const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [categoryFilter, setCategoryFilter] = useState('all');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
-
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-
-    return transactions.filter((t) => {
-      const matchesSearch = !term || [
-        t.merchant,
-        t.category,
-        t.note
-      ].some((value) => (value || '').toLowerCase().includes(term));
-
-      const matchesType = typeFilter === 'all' || t.type === typeFilter;
-      const matchesCategory =
-        categoryFilter === 'all' || t.category === categoryFilter;
-
-      const transactionDate = dateForInput(t.date);
-      const matchesFrom = !fromDate || transactionDate >= fromDate;
-      const matchesTo = !toDate || transactionDate <= toDate;
-
-      return (
-        matchesSearch &&
-        matchesType &&
-        matchesCategory &&
-        matchesFrom &&
-        matchesTo
-      );
-    });
-  }, [transactions, search, typeFilter, categoryFilter, fromDate, toDate]);
-
-  function clearFilters() {
-    setSearch('');
-    setTypeFilter('all');
-    setCategoryFilter('all');
-    setFromDate('');
-    setToDate('');
-  }
-
-  return (
-    <>
-      <div className="page-title-row">
-        <div>
-          <div className="eyebrow">YOUR MONEY, IN MOTION</div>
-          <h1>Transactions</h1>
-          <p>Every little thing that makes up your money story.</p>
-        </div>
-        <button className="primary-button" onClick={onAdd}>
-          <Plus size={17} /> Add transaction
-        </button>
-      </div>
-
-      <section className="panel full-panel">
-        <div className="transaction-tools">
-          <div className="transaction-search">
-            <Search size={17} />
-            <input
-              type="search"
-              placeholder="Search merchant, category or note..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-
-          <div className="filter-row">
-            <div className="filter-tabs">
-              {[
-                { value: 'all', label: 'Everything' },
-                { value: 'income', label: 'Money in' },
-                { value: 'expense', label: 'Money out' },
-                { value: 'transfer', label: 'Transfers' }
-              ].map((item) => (
-                <button
-                  key={item.value}
-                  className={typeFilter === item.value ? 'selected' : ''}
-                  onClick={() => setTypeFilter(item.value)}
-                  type="button"
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <span className="soft-count">
-              {filtered.length} of {transactions.length} transactions
-            </span>
-          </div>
-
-          <div className="transaction-filter-grid">
-            <label>
-              Category
-              <select
-                value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-              >
-                <option value="all">All categories</option>
-                {categories.map((category) => (
-                  <option key={category} value={category}>{category}</option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              From date
-              <input
-                type="date"
-                value={fromDate}
-                max={toDate || undefined}
-                onChange={(e) => setFromDate(e.target.value)}
-              />
-            </label>
-
-            <label>
-              To date
-              <input
-                type="date"
-                value={toDate}
-                min={fromDate || undefined}
-                onChange={(e) => setToDate(e.target.value)}
-              />
-            </label>
-
-            <button
-              className="clear-filters-button"
-              onClick={clearFilters}
-              type="button"
-            >
-              Clear filters
-            </button>
-          </div>
-        </div>
-
-        {filtered.length ? (
-          <TransactionRows
-            transactions={filtered}
-            onEdit={onEdit}
-            onDelete={onDelete}
-          />
-        ) : (
-          <div className="empty-state">
-            <ReceiptText size={28} />
-            <strong>No matching transactions</strong>
-            <span>Try changing your search or filters.</span>
-            <button
-              className="secondary-button"
-              onClick={clearFilters}
-              type="button"
-            >
-              Clear filters
-            </button>
-          </div>
-        )}
-      </section>
-    </>
-  );
-}
-
-function Budgets({ 
-  budgets,
-  unbudgetedSpending,
-  insights, 
-  comparison,
-  month, 
-  onMonthChange, 
-  onAdd 
-}) {
-  const totalLimit = budgets.reduce((sum, budget) => sum + budget.limit, 0);
-  const totalSpent = budgets.reduce((sum, budget) => sum + budget.spent, 0);
-  const totalRemaining = Math.max(0, totalLimit - totalSpent);
-  const overallUsage = totalLimit > 0 ? totalSpent / totalLimit * 100 : 0;
-
-  return (
-    <>
-      <div className="page-title-row">
-        <div>
-          <div className="eyebrow">A LITTLE ROOM TO BREATHE</div>
-          <h1>Budgets</h1>
-          <p>Think of these as gentle guardrails, not hard rules.</p>
-        </div>
-        <div className="budget-page-actions">
-          <label className="budget-month-picker">
-            <span>View month</span>
-            <input
-              type="month"
-              value={month}
-              onChange={(e) => onMonthChange(e.target.value)}
-            />
-          </label>
-          <button className="primary-button" onClick={onAdd}>
-            <Plus size={17} /> Create budget
-          </button>
-        </div>
-      </div>
-
-      <div className="budget-summary-grid">
-        <div className="panel budget-summary-card">
-          <span>PLANNED BUDGET</span>
-          <strong>{money(totalLimit)}</strong>
-          <small>Across {budgets.length} budget{budgets.length === 1 ? '' : 's'}</small>
-        </div>
-        <div className="panel budget-summary-card">
-          <span>RECORDED SPENDING</span>
-          <strong>{money(totalSpent)}</strong>
-          <small>{overallUsage.toFixed(0)}% of planned budget</small>
-        </div>
-        <div className="panel budget-summary-card">
-          <span>REMAINING</span>
-          <strong>{money(totalRemaining)}</strong>
-          <small>{totalSpent > totalLimit ? `${money(totalSpent - totalLimit)} over plan` : 'Room left in your budgets'}</small>
-        </div>
-      </div>
-
-        
-      {/* Monthly Spending Comparison */}
-      {comparison && (
-        <section className="monthly-comparison-panel">
-          <div className="budget-section-heading">
-            <div>
-              <span className="section-kicker">MONTH-OVER-MONTH</span>
-              <h3>Monthly spending comparison</h3>
-              <p>See how your spending compares with the previous month.</p>
-            </div>
-          </div>
-
-          <div className="comparison-summary-grid">
-            <div className="panel budget-summary-card">
-              <span>CURRENT MONTH</span>
-              <strong>{money(comparison.currentTotal)}</strong>
-              <small>{comparison.month}</small>
-            </div>
-
-            <div className="panel budget-summary-card">
-              <span>PREVIOUS MONTH</span>
-              <strong>{money(comparison.previousTotal)}</strong>
-              <small>{comparison.previousMonth}</small>
-            </div>
-
-            <div className="panel budget-summary-card">
-              <span>SPENDING CHANGE</span>
-              <strong>
-                {comparison.change > 0 ? '+' : ''}
-                {money(comparison.change)}
-              </strong>
-              <small>
-                {comparison.previousTotal === 0
-                  ? 'New spending this month'
-                  : `${comparison.changePercentage > 0 ? '+' : ''}${comparison.changePercentage}% compared with last month`}
-              </small>
-            </div>
-          </div>
-
-          {comparison.categoryComparison?.length > 0 && (
-            <div className="panel comparison-category-panel">
-              <h3>Category-wise comparison</h3>
-
-              {comparison.categoryComparison.map((item) => (
-                <div className="comparison-category-row" key={item.category}>
-                  <strong>{item.category}</strong>
-                  <span>
-                    <small>Previous</small>
-                    {money(item.previous)}
-                  </span>
-                  <span>
-                    <small>Current</small>
-                    {money(item.current)}
-                  </span>
-                  <span className={
-                    item.current > item.previous
-                      ? 'comparison-increased'
-                      : item.current < item.previous
-                        ? 'comparison-decreased'
-                        : 'comparison-unchanged'
-                  }>
-                    {item.current > item.previous
-                      ? 'Increased'
-                      : item.current < item.previous
-                        ? 'Decreased'
-                        : 'Unchanged'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {insights && insights.length > 0 && (
-
-
-        
-  <section className="budget-insights-panel">
-    <div className="budget-insights-heading">
-      <div>
-        <span className="section-kicker">SMART MONEY CHECK</span>
-        <h3>Your budget insights</h3>
-      </div>
-      <span className="insights-count">
-        {insights.length} insight{insights.length === 1 ? '' : 's'}
-      </span>
-    </div>
-
-    <div className="budget-insights-list">
-      {insights.map((insight, index) => (
-        <div
-          className={`budget-insight-item ${insight.type || 'info'}`}
-          key={`${insight.title}-${index}`}
-        >
-          <div className="insight-indicator" />
-          <div>
-            <strong>{insight.title}</strong>
-            <p>{insight.message}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  </section>
-)}
-
-      <div className="budget-section-heading">
-        <div>
-          <span className="section-kicker">CATEGORY BREAKDOWN</span>
-          <h3>Your monthly guardrails</h3>
-        </div>
-        <span className="soft-count">{month}</span>
-      </div>
-
-      <div className="budget-cards">
-        {budgets.length ? budgets.map((b) => {
-          const usage = b.limit > 0 ? b.spent / b.limit * 100 : 0;
-          const status = usage > 100
-            ? 'Over budget'
-            : usage >= 80
-              ? 'Near limit'
-              : 'On track';
-          const remaining = Math.max(0, b.limit - b.spent);
-          const Icon = icons[b.category] || Wallet;
-
-          return (
-            <div className="panel budget-card" key={b.id}>
-              <div className="budget-card-top">
-                <div className="category-icon tone-1"><Icon size={18} /></div>
-                <span className={`budget-status ${usage > 100 ? 'over' : usage >= 80 ? 'near' : ''}`}>
-                  {status}
-                </span>
-              </div>
-              <h3>{b.category}</h3>
-              <div className="budget-amount">
-                {money(b.spent)} <span>of {money(b.limit)}</span>
-              </div>
-              <div className="budget-track">
-                <i
-                  className={usage > 100 ? 'over' : usage >= 80 ? 'near' : ''}
-                  style={{ width: `${Math.min(100, Math.max(0, usage))}%` }}
-                />
-              </div>
-              <div className="budget-card-footer">
-                <span>{Math.min(100, Math.round(usage))}% used</span>
-                <strong>{usage > 100 ? `${money(b.spent - b.limit)} over` : `${money(remaining)} left`}</strong>
-              </div>
-            </div>
-          );
-        }) : (
-          <div className="panel empty-state">
-            <Wallet size={28} />
-            <strong>No budgets for this month</strong>
-            <span>Choose one category that matters to you and create a gentle spending plan.</span>
-            <button className="primary-button" onClick={onAdd}>
-              Create your first budget
-            </button>
-          </div>
-        )}
-      </div>
-        
-     <section className="panel unbudgeted-panel">
-        <div className="unbudgeted-header">
-          <div>
-            <span className="section-kicker">OUTSIDE YOUR PLAN</span>
-            <h3>Unbudgeted spending</h3>
-            <p>Expenses in categories where you haven't created a budget.</p>
-         </div>
-
-         <div className="unbudgeted-total">
-           <span>Total</span>
-           <strong>
-             {money(
-               unbudgetedSpending.reduce(
-                (sum, item) => sum + Number(item.spent || 0),
-                0
-               )
-             )}
-           </strong>
-         </div>
-      </div>
-
-  {unbudgetedSpending.length > 0 ? (
-    <div className="unbudgeted-list">
-      {unbudgetedSpending.map((item) => (
-        <div className="unbudgeted-row" key={item.category}>
-          <div>
-            <strong>{item.category}</strong>
-            <span>
-              {item.transactionCount} transaction
-              {item.transactionCount === 1 ? '' : 's'}
-            </span>
-          </div>
-          <strong>{money(item.spent)}</strong>
-        </div>
-      ))}
-    </div>
-  ) : (
-    <p className="unbudgeted-empty">
-      No expenses outside your configured budgets this month.
-    </p>
-  )}
-</section>
-    </>
-  );
-}
-
-function Goals({ goals, onAdd }) {
-  return (
-    <>
-      <div className="page-title-row">
-        <div>
-          <div className="eyebrow">SOMETHING TO LOOK FORWARD TO</div>
-          <h1>Savings goals</h1>
-          <p>Small steps can take you somewhere meaningful.</p>
-        </div>
-        <button className="primary-button" onClick={onAdd}>
-          <Plus size={17} /> Add a goal
-        </button>
-      </div>
-
-      <div className="goal-grid">
-        {goals.length ? goals.map((g) => (
-          <div className="panel goal-card" key={g.id}>
-            <div className="goal-spark"><Target size={20} /></div>
-            <h3>{g.name}</h3>
-            <div className="goal-numbers">
-              <strong>{money(g.saved)}</strong>
-              <span>of {money(g.target)}</span>
-            </div>
-            <div className="goal-track">
-              <i style={{ width: `${Math.min(100, g.saved / g.target * 100)}%` }} />
-            </div>
-            <p>{Math.round(g.saved / g.target * 100)}% of the way there</p>
-          </div>
-        )) : (
-          <div className="panel empty-state">
-            <Target size={28} />
-            <strong>What are you saving for?</strong>
-            <span>
-              A rainy-day fund, a new laptop, a trip—or something just for you.
-            </span>
-            <button className="primary-button" onClick={onAdd}>
-              Create a savings goal
-            </button>
-          </div>
-        )}
       </div>
     </>
   );
@@ -2661,425 +2146,6 @@ function ProfileModal({
           Your account details are protected by your SpendWise login.
         </div>
       </section>
-    </div>
-  );
-}
-
-
-
-function Intelligence({ 
-  data, 
-  loading, 
-  error, 
-  onRetry, 
-  onChat,
-  aiInsights = [],
-  aiInsightsMode = 'basic'
- }) {
-  const health = data?.financialHealth;
-  const spendingRecommendations = data?.spendingRecommendations;
-  const recommendations = spendingRecommendations?.recommendations || [];
-  const categorySpending = spendingRecommendations?.categories || [];
-  const budgetRecommendations = spendingRecommendations?.budgetRecommendations || [];
-  const recurring = data?.recurringExpenses || [];
-  const unusual = data?.unusualSpending || [];
-  const insights = data?.insights || [];
-  const displayedInsights = aiInsights.length
-  ? aiInsights
-  : insights;
-  console.log('SpendWise insight rendering:', {
-  aiInsightsCount: aiInsights.length,
-  displayedCount: displayedInsights.length,
-  mode: aiInsightsMode
-});
-
-  const formatDate = (value) => {
-    if (!value) return 'Not available';
-    return new Date(value).toLocaleDateString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
-    });
-  };
-
-  if (loading && !data) {
-    return (
-      <div className="empty-state">
-        <LoaderCircle className="spin" size={28} />
-        <strong>Analysing your financial activity...</strong>
-        <span>Looking for spending patterns and useful insights.</span>
-      </div>
-    );
-  }
-
-  if (error && !data) {
-    return (
-      <section className="panel">
-        <div className="empty-state">
-          <strong>Unable to load financial intelligence</strong>
-          <span>{error}</span>
-          <button className="primary-button" onClick={onRetry}>
-            Try again
-          </button>
-        </div>
-      </section>
-    );
-  }
-
-  if (!data) return null;
-
-  return (
-    <div className="intelligence-page">
-      <div className="page-title-row">
-        <div>
-          <span className="eyebrow">YOUR FINANCIAL ASSISTANT</span>
-          <h1>Financial Intelligence</h1>
-          <p>Understand your money patterns and make informed decisions.</p>
-        </div>
-        <button className="primary-button" onClick={onRetry} disabled={loading}>
-          <Sparkles size={15} />
-          {loading ? 'Analysing...' : 'Refresh analysis'}
-        </button>
-      </div>
-
-      <section className="intelligence-overview">
-        <div className="health-score-card">
-          <span className="section-kicker">FINANCIAL HEALTH SCORE</span>
-          <div className="health-score-ring"
-            style={{
-              '--score': `${health?.score ?? 0}%`
-            }}
-          >
-            <div>
-              <strong>{health?.score ?? '—'}</strong>
-              <span>/100</span>
-            </div>
-          </div>
-          <h2>{health?.status || 'Building your profile'}</h2>
-          <p>{health?.explanation || 'More financial records are needed.'}</p>
-        </div>
-
-        <div className="health-details panel">
-          <div className="panel-heading">
-            <div>
-              <span className="section-kicker">SCORE BREAKDOWN</span>
-              <h3>What influences your score?</h3>
-            </div>
-            <Sparkles size={19} />
-          </div>
-
-          {health?.components?.length ? (
-            health.components.map((item) => (
-              <div className="health-factor" key={item.name}>
-                <div>
-                  <strong>{item.name}</strong>
-                  <span>{item.score}/100 · {item.weight}</span>
-                </div>
-                <div className="budget-track">
-                  <i style={{ width: `${item.score}%` }} />
-                </div>
-                <p>{item.detail}</p>
-              </div>
-            ))
-          ) : (
-            <div className="empty-small">
-              Add more income and expense transactions to unlock your score breakdown.
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="intelligence-metrics">
-        <div className="panel intelligence-metric">
-          <span className="section-kicker">RECORDS ANALYSED</span>
-          <strong>{data.transactionCount ?? 0}</strong>
-          <span>Transactions in the last {data.historyDays ?? 180} days</span>
-        </div>
-        <div className="panel intelligence-metric">
-          <span className="section-kicker">RECURRING PATTERNS</span>
-          <strong>{recurring.length}</strong>
-          <span>Possible regular payments</span>
-        </div>
-        <div className="panel intelligence-metric">
-          <span className="section-kicker">SPENDING ALERTS</span>
-          <strong>{unusual.length}</strong>
-          <span>Categories needing attention</span>
-        </div>
-      </section>
-
-      
-      <section className="panel intelligence-section">
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">PERSONALIZED FINANCIAL GUIDANCE</span>
-            <h3>Spending recommendations</h3>
-            <p>
-              Practical observations based on your recorded spending and budgets.
-            </p>
-          </div>
-          <Sparkles size={19} />
-        </div>
-
-        {spendingRecommendations?.transactionCount > 0 ? (
-          <>
-            <div className="intelligence-metrics">
-              <div className="intelligence-metric">
-                <span className="section-kicker">MONTHLY EXPENSES</span>
-                <strong>{money(spendingRecommendations.totalExpenses)}</strong>
-                <span>
-                  {spendingRecommendations.transactionCount} recorded transactions
-                </span>
-              </div>
-
-              <div className="intelligence-metric">
-                <span className="section-kicker">CATEGORIES TRACKED</span>
-                <strong>{categorySpending.length}</strong>
-                <span>Spending categories this month</span>
-              </div>
-            </div>
-
-            <h4>Where your money goes</h4>
-
-            {categorySpending.map((item) => (
-              <div className="health-factor" key={item.category}>
-                <div>
-                  <strong>{item.category}</strong>
-                  <span>
-                    {money(item.amount)} · {item.sharePercentage}% of expenses
-                  </span>
-                </div>
-
-                <div className="budget-track">
-                  <i
-                    style={{
-                      width: `${item.sharePercentage}%`
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
-
-            <h4>Budget recommendations</h4>
-
-            {budgetRecommendations.length ? (
-              <div className="intelligence-list">
-                {budgetRecommendations.map((item) => (
-                  <div className="intelligence-list-item" key={item.category}>
-                    <div className="intelligence-item-icon">
-                      <Sparkles size={18} />
-                    </div>
-
-                    <div className="intelligence-item-copy">
-                      <strong>{item.category}</strong>
-
-                      <span>
-                        Spent {money(item.spent)} of {money(item.budgetLimit)}
-                      </span>
-
-                      <div className="budget-track">
-                        <i
-                          style={{
-                            width: `${Math.min(item.usagePercentage, 100)}%`
-                          }}
-                        />
-                      </div>
-
-                      <small>
-                        {item.status === 'over_budget'
-                          ? `Exceeded by ${money(Math.abs(item.remaining))}`
-                          : `${money(item.remaining)} remaining`}
-                      </small>
-                    </div>
-
-                    <badge
-                      color={
-                        item.status === 'over_budget'
-                          ? 'danger'
-                          : item.status === 'approaching_limit'
-                            ? 'warning'
-                            : 'success'
-                      }
-                    >
-                      {item.status === 'over_budget'
-                        ? 'Over budget'
-                        : item.status === 'approaching_limit'
-                          ? 'Near limit'
-                          : 'On track'}
-                    </badge>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-small">
-                No monthly budgets configured yet.
-              </div>
-            )}
-
-            <h4>Personalized observations</h4>
-
-            {recommendations.length ? (
-              <div className="intelligence-insights">
-                {recommendations.map((item, index) => (
-                  <div
-                    className="insight-strip"
-                    key={`${item.type}-${item.category}-${index}`}
-                  >
-                    <div className="insight-icon">
-                      <Sparkles size={17} />
-                    </div>
-
-                    <div className="insight-copy">
-                      <strong>{item.title}</strong>
-                      <p>{item.message}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-small">
-                More recorded transactions will help generate useful recommendations.
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="empty-small">
-            Record some expenses this month to unlock personalized spending recommendations.
-          </div>
-        )}
-      </section>
-
-      
-      <section className="panel intelligence-section">
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">PAYMENT PATTERNS</span>
-            <h3>Recurring expenses</h3>
-          </div>
-          <CalendarDays size={19} />
-        </div>
-
-        {recurring.length ? (
-          <div className="intelligence-list">
-            {recurring.map((item, index) => (
-              <div className="intelligence-list-item" key={`${item.merchant}-${index}`}>
-                <div className="intelligence-item-icon">
-                  <CalendarDays size={18} />
-                </div>
-                <div className="intelligence-item-copy">
-                  <strong>{item.merchant}</strong>
-                  <span>{item.category} · {item.frequency} · {item.confidence} confidence</span>
-                  <small>Last payment: {formatDate(item.lastPayment)}</small>
-                  <small>Estimated next payment: {formatDate(item.estimatedNextPayment)}</small>
-                  <small>{item.note}</small>
-                </div>
-                <strong className="intelligence-amount">{money(item.averageAmount)}</strong>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="empty-small">
-            No consistent weekly or monthly merchant payment patterns detected yet.
-            More transaction history may help identify them.
-          </div>
-        )}
-      </section>
-
-      <section className="panel intelligence-section">
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">SPENDING MONITOR</span>
-            <h3>Unusual spending alerts</h3>
-          </div>
-          <ArrowUpRight size={19} />
-        </div>
-
-        {unusual.length ? (
-          <div className="intelligence-list">
-            {unusual.map((item) => (
-              <div className="intelligence-list-item" key={item.category}>
-                <div className="intelligence-item-icon alert-icon">
-                  <ArrowUpRight size={18} />
-                </div>
-                <div className="intelligence-item-copy">
-                  <strong>{item.category}</strong>
-                  <span>{item.message}</span>
-                  <small>
-                    Historical monthly average: {money(item.historicalMonthlyAverage)}
-                  </small>
-                </div>
-                <div className="intelligence-alert-value">
-                  <strong>+{item.increasePercentage}%</strong>
-                  <span>{money(item.recentSpending)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="empty-small">
-            No unusual spending alerts were detected against the available historical baseline.
-          </div>
-        )}
-        <p className="intelligence-footnote">
-          Alerts compare the latest 30 days with the preceding 90-day monthly average.
-        </p>
-      </section>
-
-      <section className="panel intelligence-section">
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">
-              {aiInsights.length > 0 && aiInsightsMode === 'gemini'
-                ? 'GEMINI AI-POWERED OBSERVATIONS'
-                : aiInsights.length > 0 && aiInsightsMode === 'ai'
-                  ? 'AI-POWERED OBSERVATIONS'
-                  : 'PERSONALISED OBSERVATIONS'}
-            </span>
-            <h3>Your spending insights</h3>
-            <small>
-              {aiInsights.length
-                ? aiInsightsMode === 'gemini'
-                  ? 'Gemini AI-powered observations'
-                  : aiInsightsMode === 'ai'
-                    ? 'AI-powered observations'
-                    : 'Rule-based observations'
-                : 'Based on your recorded financial activity'}
-            </small>
-          </div>
-          <Sparkles size={19} />
-        </div>
-
-        {displayedInsights.length ? (
-          <div className="intelligence-insights">
-            {displayedInsights.map((item, index) => (
-              <div className="insight-strip" key={`${item.title}-${index}`}>
-                <div className="insight-icon">
-                  <Sparkles size={17} />
-                </div>
-                <div className="insight-copy">
-                  <strong>{item.title}</strong>
-                  <p>{item.message}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="empty-small">
-            Add more transactions to generate useful spending observations.
-          </div>
-        )}
-
-        <button className="primary-button intelligence-chat-button" onClick={onChat}>
-          <Sparkles size={15} />
-          Ask SpendWise about my finances
-        </button>
-      </section>
-
-      <p className="intelligence-disclaimer">
-        Analysis is based only on transactions recorded in SpendWise.
-        Recurring payments are estimates, not confirmed scheduled debits.
-        The financial health score is an indicative budgeting measure,
-        not a credit score or a complete financial assessment.
-      </p>
     </div>
   );
 }
