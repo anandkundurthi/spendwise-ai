@@ -16,6 +16,9 @@ import aiRoutes from './routes/ai.js';
 
 const app = express();
 
+// Trust the single proxy hop in front of the Lambda Function URL.
+app.set('trust proxy', 1);
+
 const uploadsDirectory = fileURLToPath(
   new URL('../uploads/', import.meta.url)
 );
@@ -120,9 +123,14 @@ app.use((_req, res) => {
 
 // Global error handler.
 app.use((err, _req, res, _next) => {
-  console.error(err);
+  const statusCode = err.status || 500;
 
-  res.status(err.status || 500).json({
+  console.error('Request failed:', {
+    name: err.name || 'Error',
+    status: statusCode
+  });
+
+  res.status(statusCode).json({
     message:
       process.env.NODE_ENV === 'production'
         ? 'Something went wrong.'

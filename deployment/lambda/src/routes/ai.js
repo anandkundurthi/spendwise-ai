@@ -4,6 +4,7 @@ import Transaction from '../models/Transaction.js';
 import Budget from '../models/Budget.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { normalizeChatHistory } from '../utils/aiHistory.js';
 import { getFinancialIntelligence } from '../services/financialIntelligence.js';
 import { askLocalAI } from '../services/localAI.js';
 import { getMonthlyComparison } from '../services/monthlyComparison.js';
@@ -124,6 +125,19 @@ router.post('/chat', asyncHandler(async (req, res) => {
       message: 'Please enter a question (up to 1,000 characters).'
     });
   }
+
+  const historyResult = normalizeChatHistory(
+    req.body.history,
+    question
+  );
+
+  if (historyResult.error) {
+    return res.status(400).json({
+      message: historyResult.error
+    });
+  }
+
+  const history = historyResult.history;
 
   const now = new Date();
   const currentMonth = getIndiaMonthKey(now);
@@ -385,27 +399,7 @@ router.post('/chat', asyncHandler(async (req, res) => {
   financialContext.purchaseAnalysis = purchaseAnalysis;
 
 
-const history = Array.isArray(req.body.history)
-  ? req.body.history
-      .filter(item =>
-        item &&
-        ['user', 'assistant'].includes(item.role) &&
-        typeof item.content === 'string' &&
-        item.content.trim().length > 0
-      )
-      .slice(-6)
-      .map(item => ({
-        role: item.role,
-        content: item.content.trim().slice(0, 1000)
-      }))
-  : [];
 
-if (history.length === 0) {
-  history.push({
-    role: 'user',
-    content: question.slice(0, 1000)
-  });
-}
 
 
   const messages = [
@@ -472,7 +466,14 @@ if (history.length === 0) {
       error?.code
     ].filter(Boolean).join(' ');
 
-    console.error('Gemini chat error:', errorText);
+    const errorCategory =
+      /RESOURCE_EXHAUSTED|quota exceeded|free.?tier.*limit/i.test(errorText)
+        ? 'quota'
+        : /timed out|timeout/i.test(errorText)
+          ? 'timeout'
+          : 'provider_error';
+
+    console.error('Gemini chat request failed:', errorCategory);
 
     if (
       /RESOURCE_EXHAUSTED|quota exceeded|free.?tier.*limit/i.test(errorText)
